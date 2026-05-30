@@ -1,0 +1,10 @@
+node_modules/
+.env
+.env.local
+build/
+dist/
+*.pcap
+*.log
+nginx/certs/
+docker/data/
+.DS_Store

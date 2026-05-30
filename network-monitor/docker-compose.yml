@@ -1,0 +1,116 @@
+version: "3.9"
+
+services:
+  # ── Backend API + WebSocket ──────────────────────────────────────────────
+  backend:
+    build: ./backend
+    container_name: nm_backend
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+    networks:
+      - monitor-net
+    # Mount host network for real tshark capture (optional)
+    # network_mode: host  # uncomment for real packet capture
+
+  # ── Frontend React App ───────────────────────────────────────────────────
+  frontend:
+    build: ./frontend
+    container_name: nm_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - monitor-net
+
+  # ── Nginx Reverse Proxy ──────────────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: nm_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro        # place SSL certs here
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - monitor-net
+
+  # ── Elasticsearch ────────────────────────────────────────────────────────
+  elasticsearch:
+    image: elasticsearch:8.10.0
+    container_name: nm_elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+    networks:
+      - monitor-net
+
+  # ── Logstash ─────────────────────────────────────────────────────────────
+  logstash:
+    image: logstash:8.10.0
+    container_name: nm_logstash
+    restart: unless-stopped
+    volumes:
+      - ./docker/logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+    ports:
+      - "5044:5044"
+    depends_on:
+      - elasticsearch
+    networks:
+      - monitor-net
+
+  # ── Kibana ───────────────────────────────────────────────────────────────
+  kibana:
+    image: kibana:8.10.0
+    container_name: nm_kibana
+    restart: unless-stopped
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+    networks:
+      - monitor-net
+
+  # ── Grafana ──────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:latest
+    container_name: nm_grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./docker/grafana-datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml:ro
+    depends_on:
+      - elasticsearch
+    networks:
+      - monitor-net
+
+networks:
+  monitor-net:
+    driver: bridge
+
+volumes:
+  esdata:
+  grafana-data:
